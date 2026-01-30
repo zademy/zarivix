@@ -49,17 +49,26 @@ export const cleanAudioWithWebAudio = async (inputBlob: Blob): Promise<Blob> => 
 
         // C. Dynamics Compressor - Evens out the volume (makes quiet parts louder, loud parts softer)
         const compressor = offlineCtx.createDynamicsCompressor();
-        compressor.threshold.value = -24; // dB
-        compressor.knee.value = 30; // 0-40
+        compressor.threshold.value = -20; // dB (Raised slightly from -24 to avoid over-compression)
+        compressor.knee.value = 40; // Smoother knee
         compressor.ratio.value = 12; // Compression ratio
         compressor.attack.value = 0.003; // 3ms
         compressor.release.value = 0.25; // 250ms
 
-        // Connect the graph: Source -> Highpass -> Lowpass -> Compressor -> Destination
+        // D. Gain Node - For Fade In/Out to prevent clicks (Envelope)
+        const gainNode = offlineCtx.createGain();
+        gainNode.gain.setValueAtTime(0, 0); // Start at 0 volume
+        gainNode.gain.linearRampToValueAtTime(1, 0.05); // Fade in over 50ms
+        const duration = audioBuffer.length / audioBuffer.sampleRate;
+        gainNode.gain.setValueAtTime(1, duration - 0.05); // Hold full volume until near end
+        gainNode.gain.linearRampToValueAtTime(0, duration); // Fade out over last 50ms
+
+        // Connect the graph: Source -> Highpass -> Lowpass -> Compressor -> Gain -> Destination
         source.connect(highpass);
         highpass.connect(lowpass);
         lowpass.connect(compressor);
-        compressor.connect(offlineCtx.destination);
+        compressor.connect(gainNode);
+        gainNode.connect(offlineCtx.destination);
 
         // Start source
         source.start();

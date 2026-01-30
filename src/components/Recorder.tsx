@@ -20,7 +20,7 @@ const Recorder: React.FC = () => {
       .getUserMedia({
         audio: {
           channelCount: 1,
-          sampleRate: 48000,
+          sampleRate: 44100,
           sampleSize: 16,
           echoCancellation: false,
           noiseSuppression: false,
@@ -70,7 +70,7 @@ const Recorder: React.FC = () => {
             mimeType: "audio/wav",
             recorderType: RecordRTC.StereoAudioRecorder,
             numberOfAudioChannels: 1,
-            desiredSampRate: 48000,
+            desiredSampRate: 44100, // Standard CD Quality (often more stable than 48k)
             timeSlice: 0,
             bufferSize: 16384,
           });
