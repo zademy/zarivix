@@ -69,8 +69,8 @@ export const processAudio = createAsyncThunk(
       const data = await TranscriptionService.transcribe(processedBlob, state.audio.model, apiKey);
 
       // Calculate duration for metrics
-      // Bytes per second = 44100 * 2 (bytes) * 1 (channel) = 88200
-      const duration = processedBlob.size / 88200;
+      // Bytes per second for WebM Opus at 320kbps: 320000 / 8 = 40000 bytes/sec
+      const duration = processedBlob.size / 40000;
 
       return { text: data.text || "", audioUrl, duration };
     } catch (error: unknown) {
