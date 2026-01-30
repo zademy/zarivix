@@ -67,6 +67,7 @@ export const useAudioRecorder = () => {
                         desiredSampRate: 44100,
                         timeSlice: 0,
                         bufferSize: 16384,
+                        audioBitsPerSecond: 128000,
                     });
 
                     recorderRef.current = recorder;

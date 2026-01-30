@@ -24,8 +24,8 @@ export const cleanAudioWithWebAudio = async (inputBlob: Blob): Promise<Blob> => 
         }
 
         // Apply Silence Removal
-        // Threshold 0.01 (-40dB approx for raw float)
-        const trimmedBuffer = removeSilence(audioBuffer, 0.01);
+        // Threshold 0.005 (-46dB approx for raw float) - more sensitive for longer recordings
+        const trimmedBuffer = removeSilence(audioBuffer, 0.005);
 
         // Re-initialize OfflineCtx with NEW dimensions
         const offlineCtx2 = new OfflineAudioContext(
@@ -173,10 +173,10 @@ const writeString = (view: DataView, offset: number, string: string) => {
 /**
  * Removes silent parts from an AudioBuffer.
  * @param buffer Input AudioBuffer
- * @param threshold Threshold for silence (0 to 1). Default 0.02 (approx -34dB)
+ * @param threshold Threshold for silence (0 to 1). Default 0.005 (approx -46dB)
  * @returns New AudioBuffer with silence removed
  */
-const removeSilence = (buffer: AudioBuffer, threshold = 0.02): AudioBuffer => {
+const removeSilence = (buffer: AudioBuffer, threshold = 0.005): AudioBuffer => {
     const channelData = buffer.getChannelData(0); // Assume mono for voice
     const sampleRate = buffer.sampleRate;
 
