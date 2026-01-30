@@ -38,6 +38,9 @@ const initialState: AudioState = {
 };
 
 // Async thunk for processing audio with Groq
+import { cleanAudioWithWebAudio } from '../utils/audioProcessing';
+
+
 export const processAudio = createAsyncThunk(
   'audio/processAudio',
   async (audioBlob: Blob, { getState, rejectWithValue }) => {
@@ -47,6 +50,21 @@ export const processAudio = createAsyncThunk(
     if (!apiKey) {
       return rejectWithValue("API Key is missing");
     }
+
+    // --- 0. Clean Audio (Web Audio API - DSP) ---
+    // Using native filters (Highpass, Compressor) to improve quality without AI models.
+    let processedBlob = audioBlob;
+    console.log("Starting Web Audio cleaning...");
+    try {
+      processedBlob = await cleanAudioWithWebAudio(audioBlob);
+      console.log("Web Audio cleaning complete.");
+    } catch (error) {
+      console.error("Audio cleaning failed, proceeding with original:", error);
+    }
+
+    // Convert processedBlob to audioUrl/base64 and use processedBlob for upload
+    const blobToProcess = processedBlob;
+
 
     // --- 1. Save Audio (Base64 for local playback persistence) ---
     let audioUrl: string | undefined;
@@ -60,7 +78,7 @@ export const processAudio = createAsyncThunk(
           resolve(reader.result as string);
         };
       });
-      reader.readAsDataURL(audioBlob);
+      reader.readAsDataURL(blobToProcess);
       audioUrl = await base64Promise;
 
     } catch (e) {
@@ -69,10 +87,10 @@ export const processAudio = createAsyncThunk(
     // ------------------------------------------------------------------
 
     const formData = new FormData();
-    formData.append("file", audioBlob, "audio.wav");
+    formData.append("file", blobToProcess, "audio.wav");
     formData.append("model", state.audio.model);
     formData.append("language", "es"); // Force Spanish for better accuracy
-    formData.append("temperature", "1"); // limit hallucinations
+    formData.append("temperature", "0"); // limit hallucinations
     // Fix for "Hola Hola" repetition: provide context prompt
     formData.append(
       "prompt",
@@ -111,6 +129,8 @@ const audioSlice = createSlice({
       state.isRecording = true;
       state.status = 'recording';
       state.errorMessage = null;
+      // User request: Clear text box when starting new recording
+      state.transcription = '';
     },
     stopRecording: (state) => {
       state.isRecording = false;
@@ -147,13 +167,18 @@ const audioSlice = createSlice({
         state.status = 'success';
         if (action.payload) {
           const { text: newText, audioUrl } = action.payload;
-          // Add a space if there is already text
-          state.transcription += (state.transcription ? " " : "") + newText;
+
+          // User request: Remove leading spaces (Trim)
+          const trimmedText = newText.trim();
+
+          // Since we clear on start, we just set the new text.
+          // However, if we revert to appending later, we keep the space logic but ensure it's trimmed.
+          state.transcription = trimmedText;
 
           // Add to history automatically
           const newItem: HistoryItem = {
             id: crypto.randomUUID(),
-            text: newText,
+            text: trimmedText,
             timestamp: Date.now(),
             audioUrl // Save the base64 url
           };
