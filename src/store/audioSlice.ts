@@ -5,6 +5,7 @@ export interface HistoryItem {
   id: string;
   text: string;
   timestamp: number;
+  audioUrl?: string;
 }
 
 export interface AudioState {
@@ -47,13 +48,37 @@ export const processAudio = createAsyncThunk(
       return rejectWithValue("API Key is missing");
     }
 
+    // --- 1. Save Audio (Base64 for local playback persistence) ---
+    let audioUrl: string | undefined;
+
+    try {
+      // Strategy: Convert to Base64.
+      // This allows saving small audio clips in localStorage.
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          resolve(reader.result as string);
+        };
+      });
+      reader.readAsDataURL(audioBlob);
+      audioUrl = await base64Promise;
+
+    } catch (e) {
+      console.warn("Failed to save audio", e);
+    }
+    // ------------------------------------------------------------------
+
     const formData = new FormData();
-    formData.append("file", audioBlob, "audio.webm");
+    formData.append("file", audioBlob, "audio.wav");
     formData.append("model", state.audio.model);
     formData.append("language", "es"); // Force Spanish for better accuracy
-    formData.append("temperature", "0"); // limit hallucinations
+    formData.append("temperature", "1"); // limit hallucinations
     // Fix for "Hola Hola" repetition: provide context prompt
-    formData.append("prompt", "Transcripción exacta del audio en español. Evita repeticiones.");
+    formData.append(
+      "prompt",
+      "Transcribe el audio en español de forma fiel. Elimina únicamente repeticiones accidentales inmediatas (por ejemplo 'hola hola') y ruidos evidentes. No reformules frases ni agregues contenido. Mantén la estructura original del discurso."
+    );
+
 
     try {
       const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
@@ -70,7 +95,7 @@ export const processAudio = createAsyncThunk(
       }
 
       const data = await response.json();
-      return data.text || "";
+      return { text: data.text || "", audioUrl };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Network error";
       return rejectWithValue(message);
@@ -97,19 +122,19 @@ const audioSlice = createSlice({
       state.transcription = '';
     },
     setTranscription: (state, action: PayloadAction<string>) => {
-       state.transcription = action.payload;
+      state.transcription = action.payload;
     },
     addToHistory: (state, action: PayloadAction<HistoryItem>) => {
-        state.history.unshift(action.payload);
-        localStorage.setItem('transcriptionHistory', JSON.stringify(state.history));
+      state.history.unshift(action.payload);
+      localStorage.setItem('transcriptionHistory', JSON.stringify(state.history));
     },
     deleteFromHistory: (state, action: PayloadAction<string>) => {
-        state.history = state.history.filter(item => item.id !== action.payload);
-        localStorage.setItem('transcriptionHistory', JSON.stringify(state.history));
+      state.history = state.history.filter(item => item.id !== action.payload);
+      localStorage.setItem('transcriptionHistory', JSON.stringify(state.history));
     },
     clearHistory: (state) => {
-        state.history = [];
-        localStorage.removeItem('transcriptionHistory');
+      state.history = [];
+      localStorage.removeItem('transcriptionHistory');
     }
   },
   extraReducers: (builder) => {
@@ -121,18 +146,29 @@ const audioSlice = createSlice({
       .addCase(processAudio.fulfilled, (state, action) => {
         state.status = 'success';
         if (action.payload) {
-            const newText = action.payload;
-            // Add a space if there is already text
-            state.transcription += (state.transcription ? " " : "") + newText;
-            
-            // Add to history automatically
-            const newItem: HistoryItem = {
-                id: crypto.randomUUID(),
-                text: newText,
-                timestamp: Date.now()
-            };
-            state.history.unshift(newItem);
+          const { text: newText, audioUrl } = action.payload;
+          // Add a space if there is already text
+          state.transcription += (state.transcription ? " " : "") + newText;
+
+          // Add to history automatically
+          const newItem: HistoryItem = {
+            id: crypto.randomUUID(),
+            text: newText,
+            timestamp: Date.now(),
+            audioUrl // Save the base64 url
+          };
+          state.history.unshift(newItem);
+          // Limit history to last 10 items to prevent localStorage overflow with base64
+          if (state.history.length > 10) {
+            state.history = state.history.slice(0, 10);
+          }
+          try {
             localStorage.setItem('transcriptionHistory', JSON.stringify(state.history));
+          } catch (e) {
+            console.error("Storage full", e);
+            // Fallback: Remove audio from the item/s and try again
+            // For now, just don't save to LS if it fails
+          }
         }
       })
       .addCase(processAudio.rejected, (state, action) => {

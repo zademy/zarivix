@@ -60,9 +60,14 @@ const HistorySidebar: React.FC = () => {
                                     &times;
                                 </button>
                             </div>
-                            <p className="text-sm text-gray-300 line-clamp-3">
+                            <p className="text-sm text-gray-300 line-clamp-3 mb-2">
                                 {item.text}
                             </p>
+                            {item.audioUrl && (
+                                <div onClick={(e) => e.stopPropagation()}>
+                                    <audio controls src={item.audioUrl} className="w-full h-8 mt-1" />
+                                </div>
+                            )}
                         </div>
                     ))
                 )}

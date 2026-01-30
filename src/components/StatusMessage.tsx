@@ -5,9 +5,12 @@ import type { RootState } from '../store/store';
 const StatusMessage: React.FC = () => {
     const { status, errorMessage, isRecording } = useSelector((state: RootState) => state.audio);
 
+    const isMac = navigator.userAgent.toLowerCase().includes("mac");
+    const modifierKey = isMac ? "Opt" : "Ctrl";
+
     let content = (
         <span>
-            Presiona <span className="bg-gray-200 border border-gray-300 rounded px-2 py-0.5 text-gray-700 font-mono text-sm">Ctrl</span> + <span className="bg-gray-200 border border-gray-300 rounded px-2 py-0.5 text-gray-700 font-mono text-sm">Espacio</span> para hablar
+            Presiona <span className="bg-gray-200 border border-gray-300 rounded px-2 py-0.5 text-gray-700 font-mono text-sm">{modifierKey}</span> + <span className="bg-gray-200 border border-gray-300 rounded px-2 py-0.5 text-gray-700 font-mono text-sm">Espacio</span> para hablar
         </span>
     );
     let className = "text-lg font-semibold text-gray-600 mb-4 min-h-[1.5em]";
