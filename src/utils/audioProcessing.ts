@@ -7,7 +7,7 @@ export const cleanAudioWithWebAudio = async (inputBlob: Blob): Promise<Blob> => 
     try {
         // 1. Decode Blob to AudioBuffer
         const arrayBuffer = await inputBlob.arrayBuffer();
-        const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const AudioContextClass = globalThis.AudioContext || (globalThis as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         const audioCtx = new AudioContextClass();
 
         let audioBuffer: AudioBuffer;
@@ -23,58 +23,48 @@ export const cleanAudioWithWebAudio = async (inputBlob: Blob): Promise<Blob> => 
             }
         }
 
-        // Apply Silence Removal
-        // Threshold 0.005 (-46dB approx for raw float) - more sensitive for longer recordings
-        const trimmedBuffer = removeSilence(audioBuffer, 0.005);
+        // Skip silence removal for high-quality recordings - preserve all audio
+        const processedBuffer = audioBuffer;
 
-        // Re-initialize OfflineCtx with NEW dimensions
-        const offlineCtx2 = new OfflineAudioContext(
-            trimmedBuffer.numberOfChannels,
-            trimmedBuffer.length,
-            trimmedBuffer.sampleRate
+        // Re-initialize OfflineCtx with original dimensions
+        const offlineCtx = new OfflineAudioContext(
+            processedBuffer.numberOfChannels,
+            processedBuffer.length,
+            processedBuffer.sampleRate
         );
 
-        const source = offlineCtx2.createBufferSource();
-        source.buffer = trimmedBuffer;
+        const source = offlineCtx.createBufferSource();
+        source.buffer = processedBuffer;
 
-        // Re-create nodes on new context
-        const highpass = offlineCtx2.createBiquadFilter();
+        // High-quality processing chain
+        const highpass = offlineCtx.createBiquadFilter();
         highpass.type = 'highpass';
-        highpass.frequency.value = 100;
+        highpass.frequency.value = 80; // Lower cutoff for better bass response
 
-        const lowpass = offlineCtx2.createBiquadFilter();
+        const lowpass = offlineCtx.createBiquadFilter();
         lowpass.type = 'lowpass';
-        lowpass.frequency.value = 8000;
+        lowpass.frequency.value = 20000; // Higher cutoff for better treble
 
-        const compressor = offlineCtx2.createDynamicsCompressor();
-        compressor.threshold.value = -20;
-        compressor.knee.value = 40;
-        compressor.ratio.value = 12;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.25;
-
-        const gainNode2 = offlineCtx2.createGain();
-        gainNode2.gain.setValueAtTime(0, 0);
-        gainNode2.gain.linearRampToValueAtTime(1, 0.05);
-
-        const duration = trimmedBuffer.length / trimmedBuffer.sampleRate;
-        gainNode2.gain.setValueAtTime(1, duration - 0.05);
-        gainNode2.gain.linearRampToValueAtTime(0, duration);
+        const compressor = offlineCtx.createDynamicsCompressor();
+        compressor.threshold.value = -24; // More transparent compression
+        compressor.knee.value = 30;
+        compressor.ratio.value = 8;
+        compressor.attack.value = 0.001;
+        compressor.release.value = 0.5;
 
         // Connect graph
         source.connect(highpass);
         highpass.connect(lowpass);
         lowpass.connect(compressor);
-        compressor.connect(gainNode2);
-        gainNode2.connect(offlineCtx2.destination);
+        compressor.connect(offlineCtx.destination);
 
         source.start();
 
         // 4. Render
-        const processedBuffer = await offlineCtx2.startRendering();
+        const finalBuffer = await offlineCtx.startRendering();
 
-        // 5. Convert back to WAV Blob
-        return audioBufferToWav(processedBuffer);
+        // 5. Convert back to WAV Blob with original quality
+        return audioBufferToWav(finalBuffer);
 
     } catch (err) {
         console.error("Web Audio API cleaning failed:", err);
@@ -166,88 +156,7 @@ const floatTo16BitPCM = (output: DataView, offset: number, input: Float32Array) 
 
 const writeString = (view: DataView, offset: number, string: string) => {
     for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
+        view.setUint8(offset + i, string.codePointAt(i) || 0);
     }
 };
 
-/**
- * Removes silent parts from an AudioBuffer.
- * @param buffer Input AudioBuffer
- * @param threshold Threshold for silence (0 to 1). Default 0.005 (approx -46dB)
- * @returns New AudioBuffer with silence removed
- */
-const removeSilence = (buffer: AudioBuffer, threshold = 0.005): AudioBuffer => {
-    const channelData = buffer.getChannelData(0); // Assume mono for voice
-    const sampleRate = buffer.sampleRate;
-
-    // Better Window-based Approach for stability
-    // Divide into chunks (e.g. 50ms) and classify chunk as voice/silence
-    const chunkSize = Math.floor(sampleRate * 0.05); // 50ms
-    const numChunks = Math.floor(channelData.length / chunkSize);
-    const chunkMap: boolean[] = new Array(numChunks).fill(false); // true = voice, false = silence
-
-    for (let i = 0; i < numChunks; i++) {
-        let sum = 0;
-        const start = i * chunkSize;
-        for (let j = 0; j < chunkSize; j++) {
-            sum += Math.abs(channelData[start + j]);
-        }
-        const avg = sum / chunkSize;
-        if (avg > threshold) {
-            chunkMap[i] = true;
-        }
-    }
-
-    // Dilate: Fill in small gaps (e.g. if silence < 200ms, mark as voice)
-    // and Add padding (keep 200ms before/after voice)
-    // 50ms chunks -> 4 chunks = 200ms
-    const paddingChunks = 4;
-    const expandedMap = [...chunkMap];
-
-    for (let i = 0; i < numChunks; i++) {
-        if (chunkMap[i]) {
-            // Expand backwards
-            for (let p = 1; p <= paddingChunks; p++) {
-                if (i - p >= 0) expandedMap[i - p] = true;
-            }
-            // Expand forwards
-            for (let p = 1; p <= paddingChunks; p++) {
-                if (i + p < numChunks) expandedMap[i + p] = true;
-            }
-        }
-    }
-
-    // Reconstruct
-    // Calculate total new size
-    let newLength = 0;
-    for (let i = 0; i < numChunks; i++) {
-        if (expandedMap[i]) newLength += chunkSize;
-    }
-
-    // If newLength is 0 (all silence), return original (or empty?)
-    // Return original to avoid errors if threshold is too high
-    if (newLength === 0) return buffer;
-
-    const newBuffer = new AudioContext().createBuffer(
-        buffer.numberOfChannels,
-        newLength,
-        sampleRate
-    );
-    const newChannelData = newBuffer.getChannelData(0);
-
-    let writeIndex = 0;
-    for (let i = 0; i < numChunks; i++) {
-        if (expandedMap[i]) {
-            const start = i * chunkSize;
-            // Copy chunk
-            for (let j = 0; j < chunkSize; j++) {
-                // Bounds check just in case last chunk partial
-                if (start + j < channelData.length) {
-                    newChannelData[writeIndex++] = channelData[start + j];
-                }
-            }
-        }
-    }
-
-    return newBuffer;
-};

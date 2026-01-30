@@ -19,9 +19,9 @@ export const useAudioRecorder = () => {
         navigator.mediaDevices
             .getUserMedia({
                 audio: {
-                    channelCount: 1,
-                    sampleRate: 44100,
-                    sampleSize: 16,
+                    channelCount: 2,
+                    sampleRate: 48000,
+                    sampleSize: 24,
                     echoCancellation: false,
                     noiseSuppression: false,
                     autoGainControl: false,
@@ -63,11 +63,12 @@ export const useAudioRecorder = () => {
                         type: "audio",
                         mimeType: "audio/webm",
                         recorderType: RecordRTC.MediaStreamRecorder,
-                        numberOfAudioChannels: 1,
-                        desiredSampRate: 44100,
-                        timeSlice: 0,
+                        numberOfAudioChannels: 2,
+                        sampleRate: 48000,
+                        bitrate: 320000,
+                        audioBitsPerSecond: 320000,
                         bufferSize: 16384,
-                        audioBitsPerSecond: 128000,
+                        disableLogs: false,
                     });
 
                     recorderRef.current = recorder;
