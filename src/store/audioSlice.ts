@@ -5,6 +5,7 @@ export interface HistoryItem {
   id: string;
   text: string;
   timestamp: number;
+  duration?: number;
   audioUrl?: string;
 }
 
@@ -113,7 +114,12 @@ export const processAudio = createAsyncThunk(
       }
 
       const data = await response.json();
-      return { text: data.text || "", audioUrl };
+
+      // Calculate duration before returning payload to appease Redux serializability
+      // Bytes per second = 44100 * 2 (bytes) * 1 (channel) = 88200
+      const duration = audioBlob.size / 88200;
+
+      return { text: data.text || "", audioUrl, duration };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Network error";
       return rejectWithValue(message);
@@ -166,7 +172,7 @@ const audioSlice = createSlice({
       .addCase(processAudio.fulfilled, (state, action) => {
         state.status = 'success';
         if (action.payload) {
-          const { text: newText, audioUrl } = action.payload;
+          const { text: newText, audioUrl, duration } = action.payload;
 
           // User request: Remove leading spaces (Trim)
           const trimmedText = newText.trim();
@@ -180,6 +186,7 @@ const audioSlice = createSlice({
             id: crypto.randomUUID(),
             text: trimmedText,
             timestamp: Date.now(),
+            duration: duration || 0,
             audioUrl // Save the base64 url
           };
           state.history.unshift(newItem);
